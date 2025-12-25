@@ -1,0 +1,382 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Admin Dashboard - Air Hockey</title>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    body {
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+      background: linear-gradient(135deg, #9333ea 0%, #6b21a8 100%);
+      min-height: 100vh;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      padding: 20px;
+    }
+
+    .dashboard {
+      background: rgba(255, 255, 255, 0.95);
+      border-radius: 20px;
+      padding: 40px;
+      max-width: 800px;
+      width: 100%;
+      box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+    }
+
+    h1 {
+      color: #333;
+      margin-bottom: 10px;
+      text-align: center;
+    }
+
+    .subtitle {
+      color: #666;
+      text-align: center;
+      margin-bottom: 30px;
+      font-size: 0.9rem;
+    }
+
+    .stats-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+      gap: 20px;
+      margin-bottom: 30px;
+    }
+
+    .stat-card {
+      background: linear-gradient(135deg, #9333ea 0%, #7e22ce 100%);
+      padding: 25px;
+      border-radius: 15px;
+      color: white;
+      text-align: center;
+      box-shadow: 0 5px 15px rgba(0, 0, 0, 0.2);
+    }
+
+    .stat-label {
+      font-size: 0.85rem;
+      opacity: 0.9;
+      margin-bottom: 8px;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+    }
+
+    .stat-value {
+      font-size: 2rem;
+      font-weight: bold;
+      margin-bottom: 5px;
+    }
+
+    .stat-subtext {
+      font-size: 0.75rem;
+      opacity: 0.8;
+    }
+
+    .info-section {
+      background: #f5f5f5;
+      padding: 20px;
+      border-radius: 10px;
+      margin-bottom: 20px;
+    }
+
+    .info-row {
+      display: flex;
+      justify-content: space-between;
+      padding: 10px 0;
+      border-bottom: 1px solid #ddd;
+    }
+
+    .info-row:last-child {
+      border-bottom: none;
+    }
+
+    .info-label {
+      color: #666;
+      font-weight: 500;
+    }
+
+    .info-value {
+      color: #333;
+      font-family: monospace;
+      font-size: 0.9rem;
+      word-break: break-all;
+    }
+
+    .refresh-btn {
+      width: 100%;
+      padding: 15px;
+      background: linear-gradient(135deg, #9333ea 0%, #7e22ce 100%);
+      color: white;
+      border: none;
+      border-radius: 10px;
+      font-size: 1rem;
+      font-weight: bold;
+      cursor: pointer;
+      transition: transform 0.2s;
+    }
+
+    .refresh-btn:hover {
+      transform: translateY(-2px);
+    }
+
+    .refresh-btn:active {
+      transform: translateY(0);
+    }
+
+    .loading {
+      text-align: center;
+      color: #666;
+      padding: 20px;
+    }
+
+    .error {
+      background: #fee;
+      color: #c33;
+      padding: 15px;
+      border-radius: 10px;
+      margin-bottom: 20px;
+      text-align: center;
+    }
+
+    .success {
+      background: #efe;
+      color: #3c3;
+      padding: 15px;
+      border-radius: 10px;
+      margin-bottom: 20px;
+      text-align: center;
+    }
+
+    .last-update {
+      text-align: center;
+      color: #999;
+      font-size: 0.8rem;
+      margin-top: 20px;
+    }
+  </style>
+  
+  <!-- Buffer Polyfill -->
+  <script>
+    if (typeof Buffer === 'undefined') {
+      class BufferPolyfill extends Uint8Array {
+        constructor(arg, encoding) {
+          if (typeof arg === 'number') {
+            super(arg);
+          } else if (typeof arg === 'string') {
+            const encoder = new TextEncoder();
+            const encoded = encoder.encode(arg);
+            super(encoded);
+          } else {
+            super(arg);
+          }
+        }
+        
+        toString(encoding = 'utf8') {
+          if (encoding === 'hex') {
+            return Array.from(this).map(b => b.toString(16).padStart(2, '0')).join('');
+          }
+          const decoder = new TextDecoder();
+          return decoder.decode(this);
+        }
+        
+        static from(data, encoding) {
+          if (typeof data === 'string') {
+            return new BufferPolyfill(data, encoding);
+          }
+          return new BufferPolyfill(data);
+        }
+      }
+      
+      window.Buffer = BufferPolyfill;
+    }
+  </script>
+  
+  <!-- Solana Web3.js -->
+  <script src="https://unpkg.com/@solana/web3.js@latest/lib/index.iife.min.js"></script>
+</head>
+<body>
+  <div class="dashboard">
+    <h1>🏒 Admin Dashboard</h1>
+    <p class="subtitle">Air Hockey Platform Statistics</p>
+
+    <div id="message"></div>
+
+    <div class="stats-grid">
+      <div class="stat-card">
+        <div class="stat-label">Total Games</div>
+        <div class="stat-value" id="totalGames">-</div>
+        <div class="stat-subtext">All time</div>
+      </div>
+
+      <div class="stat-card">
+        <div class="stat-label">Total Fees</div>
+        <div class="stat-value" id="totalFees">-</div>
+        <div class="stat-subtext">SOL collected</div>
+      </div>
+
+      <div class="stat-card">
+        <div class="stat-label">Fee Rate</div>
+        <div class="stat-value" id="feePercentage">5%</div>
+        <div class="stat-subtext">Platform commission</div>
+      </div>
+
+      <div class="stat-card">
+        <div class="stat-label">Admin Balance</div>
+        <div class="stat-value" id="adminBalance">-</div>
+        <div class="stat-subtext">SOL in wallet</div>
+      </div>
+    </div>
+
+    <div class="info-section">
+      <h3 style="margin-bottom: 15px; color: #333;">Platform Configuration</h3>
+      
+      <div class="info-row">
+        <span class="info-label">Program ID:</span>
+        <span class="info-value" id="programId">Loading...</span>
+      </div>
+
+      <div class="info-row">
+        <span class="info-label">Platform State PDA:</span>
+        <span class="info-value" id="platformPDA">Loading...</span>
+      </div>
+
+      <div class="info-row">
+        <span class="info-label">Admin Wallet:</span>
+        <span class="info-value" id="adminWallet">Loading...</span>
+      </div>
+
+      <div class="info-row">
+        <span class="info-label">Network:</span>
+        <span class="info-value" id="network">Devnet</span>
+      </div>
+    </div>
+
+    <button class="refresh-btn" onclick="loadPlatformStats()">🔄 Refresh Stats</button>
+
+    <div class="last-update" id="lastUpdate"></div>
+  </div>
+
+  <script>
+    // Load admin config
+    const config = {
+      programId: '3KzkUzoaSFt7xF9sW389YFE1JTwD5Fcu3aM9sReU4jgr',
+      platformStatePDA: 'AaN87WBS4udsYvpfWRHyZWeMsHNEkQxnkKuJ1BBvG4DT',
+      admin: '2Ar5HQtC7htKMqM62yaHWBqgM9D6tBnmMQzQK1na82bB',
+      feePercentage: 5,
+      cluster: 'https://api.devnet.solana.com'
+    };
+
+    let connection;
+
+    // Initialize connection
+    function initConnection() {
+      connection = new solanaWeb3.Connection(config.cluster, 'confirmed');
+      console.log('✅ Connected to Solana devnet');
+    }
+
+    // Load and display platform statistics
+    async function loadPlatformStats() {
+      try {
+        showMessage('Loading platform statistics...', 'loading');
+
+        // Get platform state account
+        const platformPubkey = new solanaWeb3.PublicKey(config.platformStatePDA);
+        const platformAccount = await connection.getAccountInfo(platformPubkey);
+
+        if (!platformAccount) {
+          throw new Error('Platform state account not found');
+        }
+
+        // Parse platform state data
+        // Account structure (after 8-byte discriminator):
+        // - admin: Pubkey (32 bytes) at offset 8
+        // - fee_percentage: u8 (1 byte) at offset 40
+        // - total_games: u64 (8 bytes) at offset 41
+        // - total_fees_collected: u64 (8 bytes) at offset 49
+
+        const data = platformAccount.data;
+        
+        // Read admin pubkey (bytes 8-40)
+        const adminPubkey = new solanaWeb3.PublicKey(data.slice(8, 40));
+        
+        // Read fee percentage (byte 40)
+        const feePercentage = data[40];
+        
+        // Read total games (bytes 41-49, little-endian u64)
+        const totalGamesBuffer = data.slice(41, 49);
+        const totalGames = Number(new DataView(totalGamesBuffer.buffer, totalGamesBuffer.byteOffset).getBigUint64(0, true));
+        
+        // Read total fees (bytes 49-57, little-endian u64)
+        const totalFeesBuffer = data.slice(49, 57);
+        const totalFeesLamports = Number(new DataView(totalFeesBuffer.buffer, totalFeesBuffer.byteOffset).getBigUint64(0, true));
+        const totalFees = totalFeesLamports / solanaWeb3.LAMPORTS_PER_SOL;
+
+        // Get admin wallet balance
+        const adminPubkeyObj = new solanaWeb3.PublicKey(config.admin);
+        const adminBalanceLamports = await connection.getBalance(adminPubkeyObj);
+        const adminBalance = adminBalanceLamports / solanaWeb3.LAMPORTS_PER_SOL;
+
+        // Update UI
+        document.getElementById('totalGames').textContent = totalGames;
+        document.getElementById('totalFees').textContent = totalFees.toFixed(4);
+        document.getElementById('feePercentage').textContent = feePercentage + '%';
+        document.getElementById('adminBalance').textContent = adminBalance.toFixed(4);
+
+        document.getElementById('programId').textContent = config.programId;
+        document.getElementById('platformPDA').textContent = config.platformStatePDA;
+        document.getElementById('adminWallet').textContent = config.admin;
+
+        showMessage('✅ Stats loaded successfully!', 'success');
+
+        // Update last update time
+        const now = new Date().toLocaleString();
+        document.getElementById('lastUpdate').textContent = `Last updated: ${now}`;
+
+        console.log('Platform Stats:');
+        console.log('  Total Games:', totalGames);
+        console.log('  Total Fees:', totalFees, 'SOL');
+        console.log('  Fee Percentage:', feePercentage, '%');
+        console.log('  Admin Balance:', adminBalance, 'SOL');
+
+      } catch (error) {
+        console.error('Error loading stats:', error);
+        showMessage('❌ Error: ' + error.message, 'error');
+      }
+    }
+
+    // Show message to user
+    function showMessage(text, type) {
+      const messageDiv = document.getElementById('message');
+      
+      if (type === 'loading') {
+        messageDiv.className = 'loading';
+      } else if (type === 'error') {
+        messageDiv.className = 'error';
+      } else if (type === 'success') {
+        messageDiv.className = 'success';
+      }
+      
+      messageDiv.textContent = text;
+
+      if (type === 'success') {
+        setTimeout(() => {
+          messageDiv.textContent = '';
+          messageDiv.className = '';
+        }, 3000);
+      }
+    }
+
+    // Initialize on page load
+    window.addEventListener('load', () => {
+      initConnection();
+      loadPlatformStats();
+    });
+  </script>
+</body>
+</html>

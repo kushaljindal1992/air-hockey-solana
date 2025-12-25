@@ -1,0 +1,103 @@
+import * as anchor from "@coral-xyz/anchor";
+import { Program } from "@coral-xyz/anchor";
+import { EscrowFee } from "../target/types/escrow_fee";
+import { PublicKey, SystemProgram, LAMPORTS_PER_SOL } from "@solana/web3.js";
+import * as fs from "fs";
+
+async function main() {
+  console.log("🔐 Air Hockey - Admin Wallet Setup\n");
+
+  const provider = anchor.AnchorProvider.env();
+  anchor.setProvider(provider);
+
+  const program = anchor.workspace.EscrowFee as Program<EscrowFee>;
+  const admin = provider.wallet as anchor.Wallet;
+  
+  console.log("Admin Wallet:", admin.publicKey.toString());
+  console.log("Program ID:", program.programId.toString());
+  
+  const balance = await provider.connection.getBalance(admin.publicKey);
+  console.log("Admin Balance:", (balance / LAMPORTS_PER_SOL).toFixed(4), "SOL");
+  
+  if (balance < 0.1 * LAMPORTS_PER_SOL) {
+    console.error("\n❌ Insufficient balance! Run: solana airdrop 2");
+    process.exit(1);
+  }
+  
+  const [platformStatePDA, bump] = PublicKey.findProgramAddressSync(
+    [Buffer.from("platform_state")],
+    program.programId
+  );
+  
+  console.log("\nPlatform State PDA:", platformStatePDA.toString());
+  console.log("Bump:", bump);
+  
+  try {
+    const platformState = await program.account.platformState.fetch(platformStatePDA);
+    console.log("\n⚠️  Platform already initialized!");
+    console.log("Admin:", platformState.admin.toString());
+    console.log("Fee:", platformState.feePercentage + "%");
+    console.log("Total Games:", platformState.totalGames.toString());
+    console.log("Total Fees:", (platformState.totalFeesCollected.toNumber() / LAMPORTS_PER_SOL).toFixed(4), "SOL");
+    return;
+  } catch (error) {
+    console.log("\n✅ Proceeding with initialization...");
+  }
+  
+  const FEE_PERCENTAGE = 5;
+  console.log("\n🏗️  Initializing platform with 5% fee...");
+  
+  try {
+    const tx = await program.methods
+      .initialize(FEE_PERCENTAGE)
+      .accountsPartial({
+        admin: admin.publicKey,
+        systemProgram: SystemProgram.programId,
+      })
+      .rpc();
+    
+    console.log("\n✅ Platform Initialized!");
+    console.log("Transaction:", tx);
+    console.log("Explorer:", `https://explorer.solana.com/tx/${tx}?cluster=custom`);
+    
+    await provider.connection.confirmTransaction(tx, "confirmed");
+    
+    const platformState = await program.account.platformState.fetch(platformStatePDA);
+    
+    console.log("\n📊 Platform State:");
+    console.log("Admin:", platformState.admin.toString());
+    console.log("Fee Percentage:", platformState.feePercentage + "%");
+    console.log("Total Games:", platformState.totalGames.toString());
+    console.log("Total Fees:", (platformState.totalFeesCollected.toNumber() / LAMPORTS_PER_SOL).toFixed(4), "SOL");
+    
+    const config = {
+      programId: program.programId.toString(),
+      platformStatePDA: platformStatePDA.toString(),
+      platformStateBump: bump,
+      admin: admin.publicKey.toString(),
+      feePercentage: FEE_PERCENTAGE,
+      cluster: provider.connection.rpcEndpoint,
+      initializedAt: new Date().toISOString(),
+    };
+    
+    fs.writeFileSync("admin-config.json", JSON.stringify(config, null, 2));
+    console.log("\n💾 Configuration saved to admin-config.json");
+    
+    console.log("\n🎉 Setup Complete!");
+    console.log("Next steps:");
+    console.log("  - Run tests: npm test");
+    console.log("  - Check status: npm run status");
+    
+  } catch (error) {
+    console.error("\n❌ Initialization failed!");
+    console.error("Error:", error);
+    process.exit(1);
+  }
+}
+
+main()
+  .then(() => process.exit(0))
+  .catch((error) => {
+    console.error("\n❌ Error:", error);
+    process.exit(1);
+  });

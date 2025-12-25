@@ -1,0 +1,36 @@
+[toolchain]
+anchor_version = "0.32.1"
+
+[features]
+resolution = true
+skip-lint = false
+seeds = false
+
+[programs.localnet]
+escrow_fee = "3KzkUzoaSFt7xF9sW389YFE1JTwD5Fcu3aM9sReU4jgr"
+
+[programs.devnet]
+escrow_fee = "3KzkUzoaSFt7xF9sW389YFE1JTwD5Fcu3aM9sReU4jgr"
+
+[programs.mainnet]
+escrow_fee = "EnnZ9wCtv5z2XgcZZpKBATNoSBCQayW9aEBQ6MVYaiuC"
+
+[registry]
+url = "https://api.apr.dev"
+
+[provider]
+cluster = "Localnet"
+wallet = "~/.config/solana/id.json"
+
+[scripts]
+test = "yarn run ts-mocha -p ./tsconfig.json -t 1000000 'tests/**/*.ts'"
+
+[[test.genesis]]
+address = "EnnZ9wCtv5z2XgcZZpKBATNoSBCQayW9aEBQ6MVYaiuC"
+program = "target/deploy/escrow_fee.so"
+
+[test.validator]
+url = "http://127.0.0.1:8899"
+
+[[test.validator.clone]]
+address = "EnnZ9wCtv5z2XgcZZpKBATNoSBCQayW9aEBQ6MVYaiuC"

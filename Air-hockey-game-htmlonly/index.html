@@ -1,0 +1,527 @@
+<html>
+<head>
+  <title>Air Hockey Championship - Web3</title>
+  <link rel="stylesheet" href="styles.css">
+  <!-- Buffer Polyfill for Browser -->
+  <script>
+    // Complete Buffer polyfill for browser with write methods
+    if (typeof Buffer === 'undefined') {
+      class BufferPolyfill extends Uint8Array {
+        constructor(arg, encoding) {
+          if (typeof arg === 'number') {
+            super(arg);
+          } else if (typeof arg === 'string') {
+            const encoder = new TextEncoder();
+            const encoded = encoder.encode(arg);
+            super(encoded);
+          } else {
+            super(arg);
+          }
+        }
+        
+        writeBigUInt64LE(value, offset = 0) {
+          const view = new DataView(this.buffer, this.byteOffset, this.byteLength);
+          view.setBigUint64(offset, BigInt(value), true); // true = little endian
+          return offset + 8;
+        }
+        
+        writeUInt32LE(value, offset = 0) {
+          const view = new DataView(this.buffer, this.byteOffset, this.byteLength);
+          view.setUint32(offset, value, true);
+          return offset + 4;
+        }
+        
+        readBigUInt64LE(offset = 0) {
+          const view = new DataView(this.buffer, this.byteOffset, this.byteLength);
+          return view.getBigUint64(offset, true);
+        }
+        
+        toString(encoding = 'utf8') {
+          if (encoding === 'hex') {
+            return Array.from(this).map(b => b.toString(16).padStart(2, '0')).join('');
+          }
+          const decoder = new TextDecoder(encoding);
+          return decoder.decode(this);
+        }
+      }
+      
+      window.Buffer = {
+        from: function(data, encoding) {
+          if (typeof data === 'string') {
+            return new BufferPolyfill(data, encoding);
+          }
+          return new BufferPolyfill(data);
+        },
+        alloc: function(size, fill) {
+          const buffer = new BufferPolyfill(size);
+          if (fill !== undefined) {
+            buffer.fill(fill);
+          }
+          return buffer;
+        },
+        allocUnsafe: function(size) {
+          return new BufferPolyfill(size);
+        },
+        concat: function(list, totalLength) {
+          if (totalLength === undefined) {
+            totalLength = list.reduce((acc, buf) => acc + buf.length, 0);
+          }
+          const result = new BufferPolyfill(totalLength);
+          let offset = 0;
+          for (const buf of list) {
+            result.set(buf, offset);
+            offset += buf.length;
+          }
+          return result;
+        },
+        isBuffer: function(obj) {
+          return obj instanceof BufferPolyfill || obj instanceof Uint8Array;
+        }
+      };
+    }
+  </script>
+  <!-- BN.js for BigNumber support -->
+  <script src="https://cdn.jsdelivr.net/npm/bn.js@5.2.1/lib/bn.min.js"></script>
+  <!-- Solana Web3.js -->
+  <script src="https://unpkg.com/@solana/web3.js@latest/lib/index.iife.min.js"></script>
+</head>
+<body>
+  <div class="game-container">
+    <!-- Start Screen -->
+    <div class="start-screen" id="startScreen">
+      <div class="start-content">
+        <div class="logo-section">
+          <img src="Images/client_logo/game_logo-removebg-preview.png" alt="Game Logo" class="logo-icon" />
+          <h1 class="game-title">AIR HOCKEY</h1>
+          <p class="game-subtitle">Challenge friends in real-time multiplayer action on Solana</p>
+          
+          <!-- Wallet Section -->
+          <div class="wallet-section" id="walletSection">
+            <button class="wallet-button" id="walletButton" onclick="connectWallet()">
+              <img src="Images/solana.png" alt="Solana" class="wallet-icon" />
+              <span id="walletButtonText">Connect Phantom Wallet</span>
+            </button>
+            <div class="wallet-info" id="walletInfo" style="display: none;">
+              <div class="wallet-address" id="walletAddress"></div>
+              <div class="wallet-balance" id="walletBalance">0.0000 SOL</div>
+              <div class="wallet-network" id="walletNetwork">devnet</div>
+              <button class="airdrop-button" id="airdropButton" onclick="requestAirdrop()" style="display: none;">
+                <span>💰</span> Get 1 SOL (Devnet)
+              </button>
+              <div class="airdrop-help" id="airdropHelp" style="display: none;">
+                <a href="https://faucet.solana.com/" target="_blank">🔗 Alternative Faucet</a>
+              </div>
+            </div>
+          </div>
+        </div>
+        
+        <div class="form-section">
+          <div class="input-group">
+            <label class="input-label">Player Name</label>
+            <input type="text" class="text-input" id="playerName" placeholder="Enter your name" maxlength="12">
+          </div>
+          
+          <div class="button-group">
+            <button class="game-button btn-primary" id="quickMatchBtn" onclick="startQuickMatch()">
+              <img src="Images/solana.png" alt="Solana" class="button-solana-icon" /> Quick Match (Bet SOL)
+            </button>
+            
+            <button class="game-button btn-secondary" id="privateRoomBtn" onclick="startPrivateRoom()">
+              🔒 Private Room (Bet SOL)
+            </button>
+          </div>
+          
+          <div class="join-section">
+            <div class="section-title">Join Existing Room</div>
+            <div class="input-group">
+              <input type="text" class="text-input" id="roomCode" placeholder="ENTER ROOM CODE (E.G., A7K9M2)" maxlength="6" style="text-align: center; text-transform: uppercase;">
+            </div>
+            <button class="game-button btn-success" onclick="joinRoom()">
+              🎮 Join Game
+            </button>
+          </div>
+          
+          <button class="game-button btn-neutral" onclick="showSettings()">
+            ⚙️ Settings
+          </button>
+        </div>
+      </div>
+    </div>
+    
+    <!-- Settings Screen -->
+    <div class="settings-screen" id="settingsScreen">
+      <div class="settings-content">
+        <h2 class="settings-title">Game Settings</h2>
+        
+        <div class="settings-section">
+          <label class="settings-label">Table Color Theme</label>
+          <div class="color-grid">
+            <div class="color-option green selected" data-color="green" onclick="selectTableColor('green')"></div>
+            <div class="color-option blue" data-color="blue" onclick="selectTableColor('blue')"></div>
+            <div class="color-option purple" data-color="purple" onclick="selectTableColor('purple')"></div>
+            <div class="color-option red" data-color="red" onclick="selectTableColor('red')"></div>
+            <div class="color-option orange" data-color="orange" onclick="selectTableColor('orange')"></div>
+            <div class="color-option teal" data-color="teal" onclick="selectTableColor('teal')"></div>
+          </div>
+        </div>
+        
+        <div class="settings-section">
+          <label class="settings-label">Ball Color</label>
+          <div class="ball-color-grid">
+            <div class="ball-color-option ball-white selected" data-color="white" onclick="selectBallColor('white')"></div>
+            <div class="ball-color-option ball-yellow" data-color="yellow" onclick="selectBallColor('yellow')"></div>
+            <div class="ball-color-option ball-orange" data-color="orange" onclick="selectBallColor('orange')"></div>
+            <div class="ball-color-option ball-red" data-color="red" onclick="selectBallColor('red')"></div>
+            <div class="ball-color-option ball-pink" data-color="pink" onclick="selectBallColor('pink')"></div>
+            <div class="ball-color-option ball-purple" data-color="purple" onclick="selectBallColor('purple')"></div>
+            <div class="ball-color-option ball-blue" data-color="blue" onclick="selectBallColor('blue')"></div>
+            <div class="ball-color-option ball-green" data-color="green" onclick="selectBallColor('green')"></div>
+          </div>
+        </div>
+        
+        <button class="game-button btn-neutral" onclick="hideSettings()">
+          ← Back to Menu
+        </button>
+      </div>
+    </div>
+    
+    <!-- Game UI -->
+    <div class="game-ui" id="gameUI">
+      <button class="exit-button" onclick="exitGame()">
+        ← Exit to Menu
+      </button>
+      
+      <!-- Multiplayer Status -->
+      <div class="multiplayer-status" id="multiplayerStatus" style="display: none;">
+        <div class="connection-indicator">
+          <span class="status-dot"></span>
+          <span class="status-text" id="connectionStatus">Connecting...</span>
+        </div>
+        <div class="room-info" id="roomInfo">Room: <span id="currentRoomId"></span></div>
+        <div class="player-role" id="playerRole">Role: <span id="currentRole"></span></div>
+      </div>
+      
+      <div class="score-panel">
+        <div class="player-info player1-info">
+          <div class="player-name" id="player1Name">Player 1</div>
+          <div class="player-score" id="player1Score">0</div>
+        </div>
+        <div class="vs-separator">VS</div>
+        <div class="player-info player2-info">
+          <div class="player-name" id="player2Name">Player 2</div>
+          <div class="player-score" id="player2Score">0</div>
+        </div>
+      </div>
+    </div>
+    
+    <div class="game-info">
+      Move your paddle with the mouse • First to 7 wins • ESC to exit
+    </div>
+    
+    <!-- Game Canvas -->
+    <canvas id="canvas" width="1000" height="600"></canvas>
+  </div>
+  
+  <!-- Audio elements for sound effects -->
+  <audio id="hitSound" preload="auto" volume="0.6">
+    <source src="audio/tennis-ball-hit-386155.mp3" type="audio/mpeg">
+  </audio>
+  <audio id="goalSound" preload="auto">
+    <source src="data:audio/wav;base64,UklGRuQBAABXQVZFZm10IBAAAAABAAEARKwAAIhYAQACABAAZGF0YcABAAAAAAA=" type="audio/wav">
+  </audio>
+  <audio id="crowdCheerSound" preload="auto" volume="0.7">
+    <source src="audio/crowd-cheering-379666_N97Xob4A.mp3" type="audio/mpeg">
+  </audio>
+  <audio id="winningSound" preload="auto" volume="0.8">
+    <source src="audio/final_audio.mp3" type="audio/mpeg">
+  </audio>
+  <audio id="wallSound" preload="auto" volume="0.5">
+    <source src="audio/ball-heating-table.mp3" type="audio/mpeg">
+  </audio>
+
+  <!-- Betting Modal -->
+  <div class="modal" id="bettingModal">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h2><img src="Images/solana.png" alt="Solana" class="modal-solana-icon" /> Place Your Bet</h2>
+      </div>
+      <div class="modal-body">
+        <p class="modal-description">Choose your stake amount to play on Solana</p>
+        
+        <div class="stake-options">
+          <button class="stake-option" onclick="selectStake(0.1)">0.1 SOL</button>
+          <button class="stake-option" onclick="selectStake(0.5)">0.5 SOL</button>
+          <button class="stake-option selected" onclick="selectStake(1)">1 SOL</button>
+          <button class="stake-option" onclick="selectStake(5)">5 SOL</button>
+          <button class="stake-option" onclick="selectStake(10)">10 SOL</button>
+          <button class="stake-option" onclick="selectStake(20)">20 SOL</button>
+        </div>
+        
+        <div class="custom-stake-section">
+          <label class="custom-stake-label">Or enter custom amount:</label>
+          <div class="custom-stake-input-group">
+            <input type="number" 
+                   id="customStakeInput" 
+                   class="custom-stake-input" 
+                   placeholder="0.00" 
+                   step="0.01" 
+                   min="0.01"
+                   onchange="selectCustomStake()"
+                   oninput="selectCustomStake()">
+            <span class="custom-stake-currency">SOL</span>
+          </div>
+          <div class="custom-stake-hint" id="customStakeHint">
+            Available: <span id="availableBalance">0.0000 SOL</span>
+          </div>
+        </div>
+        
+        <div class="bet-summary">
+          <div class="summary-row">
+            <span>Your Stake:</span>
+            <span id="stakeAmount">0.1 SOL</span>
+          </div>
+          <div class="summary-row">
+            <span>Total Pool:</span>
+            <span id="totalPool">0.2 SOL</span>
+          </div>
+          <div class="summary-row highlight">
+            <span>Winner Gets:</span>
+            <span id="winnerAmount">0.19 SOL (95%)</span>
+          </div>
+          <div class="summary-row">
+            <span>Platform Fee:</span>
+            <span id="platformFee">0.01 SOL (5%)</span>
+          </div>
+        </div>
+        
+        <div class="modal-warning" id="balanceWarning" style="display: none;">
+          ⚠️ Insufficient balance! You need <span id="requiredAmount">0.11</span> SOL
+        </div>
+        
+        <div class="modal-warning">
+          ⚠️ Make sure you have sufficient SOL balance
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="modal-button btn-cancel" onclick="closeBettingModal()">Cancel</button>
+        <button class="modal-button btn-confirm" id="confirmBetBtn" onclick="confirmBet()">Confirm & Find Match</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Transaction Status Modal -->
+  <div class="modal" id="txModal">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h2 id="txModalTitle">⏳ Processing Transaction</h2>
+      </div>
+      <div class="modal-body">
+        <div class="tx-status" id="txStatus">
+          <div class="spinner"></div>
+          <p id="txMessage">Please approve the transaction in Phantom...</p>
+        </div>
+        <div class="tx-signature" id="txSignature" style="display: none;">
+          <p>Transaction Signature:</p>
+          <a id="txLink" href="#" target="_blank"></a>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="modal-button btn-neutral" id="txCloseButton" onclick="closeTxModal()" style="display: none;">Close</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Private Room Info Screen -->
+  <div class="modal" id="privateRoomModal">
+    <div class="modal-content" style="max-width: 600px;">
+      <div class="modal-header">
+        <h2>🎮 Room Created!</h2>
+      </div>
+      <div class="modal-body">
+        <div class="room-info-section">
+          <div class="room-code-display">
+            <div class="room-code-label">ROOM CODE</div>
+            <div class="room-code-value" id="privateRoomCode">1WTNGX</div>
+            <button class="copy-code-btn" onclick="copyRoomCode()">
+              📋 Copy Code
+            </button>
+          </div>
+          
+          <div class="room-details">
+            <div class="detail-row">
+              <span class="detail-label">Player Name:</span>
+              <span class="detail-value" id="roomPlayerName">Player658</span>
+            </div>
+            <div class="detail-row">
+              <span class="detail-label">Bet Amount:</span>
+              <span class="detail-value" id="roomBetAmount">
+                <img src="Images/solana.png" alt="SOL" style="width: 16px; height: 16px; vertical-align: middle;"> 
+                <span id="roomBetValue">0.10</span> SOL
+              </span>
+            </div>
+            <div class="detail-row">
+              <span class="detail-label">Total Pool:</span>
+              <span class="detail-value" id="roomTotalPool">0.20 SOL</span>
+            </div>
+            <div class="detail-row highlight">
+              <span class="detail-label">Winner Gets:</span>
+              <span class="detail-value" id="roomWinnerAmount">0.19 SOL</span>
+            </div>
+            <div class="detail-row">
+              <span class="detail-label">Transaction Status:</span>
+              <span class="detail-value tx-status" id="roomTxStatus">✅ Confirmed</span>
+            </div>
+          </div>
+
+          <div class="share-instructions">
+            <p><strong>Share this code with your friend</strong></p>
+            <p style="font-size: 14px; opacity: 0.8; margin-top: 8px;">Waiting for player 2 to join...</p>
+          </div>
+          
+          <div class="waiting-indicator">
+            <div class="spinner"></div>
+            <p id="waitingText">Waiting for player 2 to join...</p>
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="modal-button btn-cancel" onclick="cancelPrivateRoom()">Cancel</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Join Private Room Modal -->
+  <div class="modal" id="joinPrivateRoomModal">
+    <div class="modal-content" style="max-width: 600px;">
+      <div class="modal-header">
+        <h2>🎮 Join Private Room</h2>
+      </div>
+      <div class="modal-body">
+        <div class="room-info-section">
+          <div class="room-details">
+            <div class="detail-row">
+              <span class="detail-label">Room Code:</span>
+              <span class="detail-value" id="joinRoomCode">------</span>
+            </div>
+            <div class="detail-row">
+              <span class="detail-label">Host Player:</span>
+              <span class="detail-value" id="joinHostName">Loading...</span>
+            </div>
+            <div class="detail-row">
+              <span class="detail-label">Bet Amount:</span>
+              <span class="detail-value" id="joinBetAmount">
+                <img src="Images/solana.png" alt="SOL" style="width: 16px; height: 16px; vertical-align: middle;"> 
+                <span id="joinBetValue">0.00</span> SOL
+              </span>
+            </div>
+            <div class="detail-row">
+              <span class="detail-label">Total Pool:</span>
+              <span class="detail-value" id="joinTotalPool">0.00 SOL</span>
+            </div>
+            <div class="detail-row highlight">
+              <span class="detail-label">Winner Gets:</span>
+              <span class="detail-value" id="joinWinnerAmount">0.00 SOL</span>
+            </div>
+          </div>
+
+          <div class="confirm-instructions">
+            <p><strong>⚠️ Confirm all details before joining</strong></p>
+            <p style="font-size: 14px; opacity: 0.8; margin-top: 8px;">You will need to complete a Solana transaction to join this game</p>
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="modal-button btn-cancel" onclick="closeJoinPrivateRoomModal()">Cancel</button>
+        <button class="modal-button btn-confirm" id="confirmJoinBtn" onclick="confirmJoinPrivateRoom()">Confirm & Join (Pay SOL)</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Matchmaking Screen -->
+  <div class="matchmaking-screen" id="matchmakingScreen">
+    <div class="matchmaking-content">
+      <div class="matchmaking-header">
+        <div class="match-location">
+          <div class="location-badge"><img src="Images/solana.png" alt="Solana" class="badge-solana-icon" /> AIR HOCKEY</div>
+          <div class="online-count" id="onlineCount">
+            <span class="online-dot">●</span>
+            <span id="onlinePlayerCount">0</span> online
+            <span class="searching-count"> | <span id="searchingCount">0</span> searching</span>
+          </div>
+        </div>
+        <div class="match-pool">
+          <div class="pool-label">TOTAL WINNINGS</div>
+          <div class="pool-counter">
+            <span class="pool-amount" id="matchPoolAmount">0.00</span>
+            <span class="pool-currency"><img src="Images/solana.png" alt="Solana" class="pool-solana-icon" /> SOL</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Coin animation container -->
+      <div class="coin-container" id="coinContainer"></div>
+
+      <div class="matchmaking-players">
+        <!-- Player 1 (Current User) -->
+        <div class="player-card player-1" id="player1Card">
+          <div class="player-avatar">
+            <div class="avatar-circle">
+              <img class="avatar-img" id="player1Avatar" src="" alt="Avatar">
+            </div>
+            <div class="player-flag">🇮🇳</div>
+          </div>
+          <div class="player-name" id="player1Name">You</div>
+          <div class="player-stake" id="player1StakeContainer">
+            <span class="stake-amount" id="player1Stake">0.10</span>
+            <span class="stake-currency">SOL</span>
+          </div>
+        </div>
+
+        <!-- VS Divider -->
+        <div class="vs-divider">
+          <div class="vs-text">VS</div>
+        </div>
+
+        <!-- Player 2 (Opponent - Searching) -->
+        <div class="player-card player-2" id="player2Card">
+          <div class="player-avatar slot-machine" id="opponentAvatar">
+            <div class="avatar-circle searching">
+              <div class="avatar-scroll-container" id="avatarScrollContainer">
+                <!-- Avatar images will be dynamically loaded here -->
+              </div>
+              <img class="avatar-img found-avatar" id="player2Avatar" src="" alt="Avatar" style="display: none;">
+            </div>
+            <div class="player-flag searching-flag">🌍</div>
+          </div>
+          <div class="player-name searching-text" id="player2Name">Searching...</div>
+          <div class="player-stake" id="player2StakeContainer">
+            <span class="stake-amount searching-stake" id="player2Stake">0.10</span>
+            <span class="stake-currency">SOL</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="matchmaking-footer">
+        <div class="search-status">
+          <div class="search-status-row">
+            <div class="search-spinner"></div>
+            <p class="search-text" id="searchText">Finding opponent with matching stake...</p>
+          </div>
+          <p class="search-subtext" id="searchSubtext">Searching for players...</p>
+        </div>
+        <button class="cancel-search-btn" onclick="cancelMatchmaking()">Cancel</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Socket.IO Client Library -->
+  <script src="/socket.io/socket.io.js"></script>
+  
+  <!-- Web3 Integration Scripts -->
+  <script src="wallet.js"></script>
+  <script src="blockchain.js"></script>
+  
+  <!-- Main Game Script -->
+  <script src="script.js"></script>
+</body>
+</html>
